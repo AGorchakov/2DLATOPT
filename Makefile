@@ -18,10 +18,10 @@ LOCSEARCH=../LOCSEARCH
 INCLUDE = -I$(SNOWGOOSE) -I$(COMPI) -I$(2DLAT) -I$(LOCSEARCH)
 
 # C++ compiler options
-CPPOPTS = --std=c++14 $(INCLUDE) -g
+CPPOPTS = --std=c++14 $(INCLUDE) -g -fopenmp
 
 # Libraries to include 
-LIBS = 
+LIBS = -fopenmp
 
 # Linkers flags
 LDFLAGS = -pthread 
