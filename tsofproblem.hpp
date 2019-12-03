@@ -39,7 +39,7 @@ namespace lattice {
                 const int j = LatticeData::ParamInd::RecSize * i;
                 // height
                 box.mA[j + LatticeData::ParamInd::Height] = 0.5;
-                box.mB[j + LatticeData::ParamInd::Height] = 2;
+                box.mB[j + LatticeData::ParamInd::Height] = 4;
                 // displacement
                 if (i == 0) {
                     box.mA[j + LatticeData::ParamInd::Displ] = 0;
