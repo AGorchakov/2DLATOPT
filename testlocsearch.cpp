@@ -10,6 +10,7 @@
  *
  * Created on June 5, 2017, 3:42 PM
  */
+#include <omp.h>
 #include <iostream>
 #include <algorithm>
 #include <limits>
@@ -21,6 +22,14 @@
 #include <funccnt.hpp>
 #include "tsofproblem.hpp"
 
+#include <sys/time.h>
+double MyGetTime(){
+struct timeval t0;
+gettimeofday(&t0, NULL);
+return t0.tv_sec + (t0.tv_usec / 1000000.0);
+}
+
+
 /*
  * 
  */
@@ -30,9 +39,9 @@ void acdSearch(double& v, double* x, const COMPI::MPProblem<double>& prob) {
     desc.getOptions().mSearchType = LOCSEARCH::AdvancedCoordinateDescent<double>::SearchTypes::NO_DESCENT;
 //    desc.getOptions().mDoTracing = true;
     
-    std::cout << "ADC before v = " << v << std::endl;
+//    std::cout << "ADC before v = " << v << std::endl;
     bool rv = desc.search(x, v);
-    std::cout << "ADC after v = " << v << std::endl;
+//    std::cout << "ADC after v = " << v << std::endl;
 }
 
 
@@ -52,66 +61,63 @@ void rosenSearch(double& v, double* x, const COMPI::MPProblem<double>& prob) {
 }
 
 void search(double& v, double* x, const COMPI::MPProblem<double>& prob) {
+    printf("n=\n");
     acdSearch(v, x, prob);
     //rosenSearch(v, x, prob);
 }
 
-#define MULT 1
+
 int main(int argc, char** argv) {
-    constexpr double length = 16*MULT;
+    constexpr double length = 16;
     constexpr int nlayers = 4;
-    std::vector<lattice::AtomTypes> atoms(nlayers, lattice::AtomTypes::CARBON);
-//    lattice::PairPotentialProblem uprob(lattice::ljpotent, length, atoms);
-    lattice::TsofPotentialProblem uprob(length, atoms);
-    constexpr int npoints = 100;
-    snowgoose::RandomPointGenerator<double> rg(*(uprob.mBox), npoints, 1);
-    const int n = uprob.mVarTypes.size();
-    double x[n];
-    double bestx[n];
-    double v = std::numeric_limits<double>::max();
-    auto fcnt = std::make_shared<COMPI::FuncCnt<double>>(uprob.mObjectives[0]);
-    uprob.mObjectives.pop_back();
-    uprob.mObjectives.push_back(fcnt);
+    constexpr int npoints = 32000;
 
-    int sNUM = 1000;
-    double smin = 1.0e9, smax = -1.0e9, smean = 0.0, sstd = 0.0;
+    double ** frez = new double*[npoints];
+    for(int i = 0; i < npoints; i++) frez[i] = new double[15];
+    double start = MyGetTime();
+    double rec;
 
-    while(rg.getPoint(x)){
+#pragma omp parallel for schedule(dynamic), num_threads(40)
+    for(int i = 0; i < npoints; i ++) {
+       std::vector<lattice::AtomTypes> atoms(nlayers, lattice::AtomTypes::CARBON);
+       lattice::TsofPotentialProblem uprob(length, atoms);
+       //auto obj = std::make_shared<COMPI::FuncCnt<double>>(uprob.mObjectives.at(0));
+//       auto fcnt = std::make_shared<COMPI::FuncCnt<double>>(uprob.mObjectives[0]);
+       double v = std::numeric_limits<double>::max();
+//       uprob.mObjectives.pop_back();
+//       uprob.mObjectives.push_back(fcnt);
+       snowgoose::RandomPointGenerator<double> rg(*(uprob.mBox), 1, i);
+       const int n = uprob.mVarTypes.size();
+       double x[n];
+       //double bestx[n];
+       rg.getPoint(x);
+       double nv = uprob.mObjectives[0]->func(x);
+       if(x[4] >= x[5]) {double tmp = x[4]; x[4] = x[5]; x[5] = tmp;}
+       if(x[7] >= x[8]) {double tmp = x[7]; x[7] = x[8]; x[8] = tmp;}
+       if(x[10] >= x[11]) {double tmp = x[10]; x[10] = x[11]; x[11] = tmp;}
 
-        double nv = uprob.mObjectives[0]->func(x);
-        fcnt->reset();
-        search(nv, x, uprob);
-
-/*        for(int k = 0; k < sNUM; k++) {
-           for(int j = 4; j < n; j+=3) x[j] = fmod(x[j]+k*x[2], x[j+1]);
-           nv = uprob.mObjectives[0]->func(x);
-           std::cout << " x = " << snowgoose::VecUtils::vecPrint(n, x) << "\n";
-           std::cout << " nv = " << nv << "\n";
-           if(smin > nv) smin = nv;
-           if(smax < nv) smax = nv;
-           smean += nv/MULT;
-           sstd  += (nv/MULT)*(nv/MULT);
-        }*/
-        smean /= sNUM;
-        sstd = sqrt(sstd / sNUM - smean*smean);
-
-//        std::cout << "took " << fcnt->mCounters.mFuncCalls << " function calls\n";
-        
-        std::cout << nv << " = ";
-        std::cout << "f(" << snowgoose::VecUtils::vecPrint(n, x) << ")\n";
+       search(nv, x, uprob);
+#pragma omp critical
+{
+       if (nv < rec) rec = nv;
+}
+       frez[i][0] =  MyGetTime()-start;
+       frez[i][1] = rec;
+       frez[i][2] = nv;
+       for(int j = 0; j < 12; j++) frez[i][j+3] = x[j];
          
-        if (nv < v) {
-            v = nv;
-            snowgoose::VecUtils::vecCopy(n, x, bestx);
-        }
     }
-    std::cout << " best x = " << snowgoose::VecUtils::vecPrint(n, bestx) << "\n";
-    std::cout << " best v = " << v << "\n";
 
-    std::cout << "min v  =" << smin/MULT << "\n"; 
-    std::cout << "max v  =" << smax/MULT << "\n"; 
-    std::cout << "mean v =" << smean << "\n"; 
-    std::cout << "std v  =" << sstd << "\n"; 
+    FILE * point = fopen("acd_32000.txt", "w");
+    fprintf(point, "time, rec,func,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11\n");
+    for(int i = 0; i < npoints; i++) 
+       if(1 || frez[i][1+4] < frez[i][1+5] &&
+          frez[i][1+7] < frez[i][1+8] &&
+          frez[i][1+10] < frez[i][1+11]) {
+          for(int j = 0; j < 14; j++) fprintf(point, "%18.12lf,", frez[i][j]);
+          fprintf(point, "%18.12lf\n", frez[i][14]);
+    }
+    fclose(point);
 
     return 0;
 }
